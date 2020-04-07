@@ -132,7 +132,8 @@ int station::send_frame(unsigned short cmd, char *data, unsigned short len)
 	}
 	buf[OFFSET_DAT+len] = crc;
 
-	ret = station_write(station_sock, buf, len+4+37);
+	//ret = station_write(station_sock, buf, len+4+37);
+	ret = write(station_sock, buf, len+4+37);
 	
 	/*printf("write %d bytes: [", ret);
 	for (i = 0; i < len+4+37; i++) {
@@ -192,12 +193,13 @@ struct station_frame station::read_frame()
 	int ret;
 	unsigned char buf[100];
 	struct station_frame sf;
+			memset(&sf, 0, sizeof(sf));
 
 	ros::Rate loop_rate(100);
 	
 	int nothead = 0;
 	while (ros::ok()) {
-		if (nothead > 50) {
+		if (nothead > 10) {
 			memset(&sf, 0, sizeof(sf));
 			return sf;
 		}
@@ -206,23 +208,30 @@ struct station_frame station::read_frame()
 		if (head1 != 0x3b) {
 			printf("read %x except head1\n", head1);
 			nothead++;
-			loop_rate.sleep();
+			//loop_rate.sleep();
 			continue;
 		}
 		
 		station_read(station_sock, &head2, 1);//printf("read head2:%x\n", head2);
 		if (head2 != 0xb3) {
-			printf("read %x except head1\n", head2);
+			printf("read %x except head2\n", head2);
 			nothead++;
-			loop_rate.sleep();
+			//loop_rate.sleep();
 			continue;
 		}
 
-		station_read(station_sock, &len, 2);
+		ret = station_read(station_sock, &len, 2);
+		if (ret < 2) continue;
+		/*offset = 0;
+		while (offset < 2) {
+			ret = station_read(station_sock, buf+offset, 2-offset);
+			if (ret <= 0) break;//TODO. handle lamp
+			offset += ret;
+		}*/
 
 		offset = 0;
 		while (offset < len) {
-			ret = station_read(station_sock, buf+offset, len);
+			ret = station_read(station_sock, buf+offset, len-offset);
 			if (ret <= 0) break;//TODO. handle lamp
 			offset += ret;
 		}
@@ -274,6 +283,7 @@ thelog.printf("fetching frame %x\n", cmd);
 	}*/
 	
 	mutex_fetch_frame.unlock();
+	sleep(2);
 	return 0;
 
 }
@@ -307,13 +317,17 @@ void station::read_frame_stop()
 static void read_frame_thread(station *p_station)
 {
 	unsigned short cmd;
-	
+		struct station_frame sf;
+
 	while (ros::ok()) {
 		
 		if (p_station->read_frame_get_status() == READFRAME_STOPING)
 			break;
-		
-		cmd = p_station->get_frame_cmd(p_station->read_frame());
+		sf = p_station->read_frame();
+		cmd = p_station->get_frame_cmd(sf);
+
+		printf("get_frame_cmd %x\n", cmd);
+
 		if (cmd == 0) continue;
 		p_station->thelog.printf("get_frame_cmd %x\n", cmd);
 
@@ -321,6 +335,8 @@ static void read_frame_thread(station *p_station)
 		case STA_CHARGE_STOP:
 		case STA_WATER_STOP:
 		case STA_DIRTY_STOP:
+		case STA_DETACH:
+		case STA_DISCONN:
 			p_station->supply_stop();
 			break;
 		default:
@@ -514,7 +530,7 @@ static void heartbeat_thread(station *p_station)
 			loop_rate.sleep();
 		}*/
 
-
+		loop_rate.sleep();
 		loop_rate.sleep();
 	}
 
@@ -594,8 +610,8 @@ void station::docking_set_and_pub_status(docking_status status)
 
 static void docking_start_thread(station *p_station)
 {
-	p_station->thelog.create("/home/bzl/catkin_ws/");
-	//p_station->thelog.create("/opt/ros/catkin_ws/");
+	//p_station->thelog.create("/home/bzl/catkin_ws/");
+	p_station->thelog.create("/opt/ros/catkin_ws/");
 	p_station->thelog.printf("%s start\n", __func__);
 	
 	int try_stop_heartbeat = 5;
@@ -707,7 +723,7 @@ static void docking_start_thread(station *p_station)
 int station::docking_start()
 {
 	//docking srv״̬��0�����Խӣ�1�������ӹ���վ��2����վæ�������Խӣ�-1����ʧ��
-	//docking msg״̬:0�����Խӣ�1�������ӹ���վ��2����վæ�������Խӣ�3�Խ���ɣ�?-1����ʧ��
+	//docking msg״̬:0�����Խӣ�1�������ӹ���վ��2����վæ�������Խӣ�3�Խ���ɣ�?-1����ʧ��
 	
 	if (DOCKING_THREAD_STOP != docking_start_thread_get_status()) {
 		return docking_get_status();
@@ -738,7 +754,7 @@ static void docking_stop_thread(station *p_station)
 
 	//TODO. wait supply stop
 	while (ros::ok()) {
-		p_station->thelog.printf("%s stoping\n");
+		p_station->thelog.printf("%s stoping\n", __func__);
 		if (
 			p_station->supply_get_thread_status(MISSION_CHARGE) == SUPPLY_THREAD_STOP &&
 			p_station->supply_get_thread_status(MISSION_CHARGE) == SUPPLY_THREAD_STOP &&
@@ -1146,6 +1162,8 @@ static void supply_dirty_thread(int mission, int timeout, station *p_station)
 			if (p_station->fetch_frame(STA_BASE_CMD_STOP+mission*8) < 0) {
 				p_station->thelog.printf("%s fetch STA_BASE_CMD_STOP fail, do nothing\n", __func__);
 			}
+			p_station->m_station_mcu_controller->setPwm(4, 0, 5);//boom
+			p_station->m_station_mcu_controller->setDout(13,0);//valve
 			p_station->supply_set_and_pub_status(mission, SUPPLY_STATUS_FAIL);
 			return;
 		}
@@ -1325,7 +1343,7 @@ int station::supply_start(int water, int dirty, int charge)
 	req.add_water
 	req.discharge_water
 	req.charge*/
-	//0δ��ˮ��1���ڼ�ˮ��2��ˮ��ɣ�?-1��ˮʧ��
+	//0δ��ˮ��1���ڼ�ˮ��2��ˮ��ɣ�?-1��ˮʧ��
 
 	thelog.printf("supply_start:water:%d dirty:%d charge:%d\n", water, dirty, charge);
 	if (DOCKING_STATUS_COMPLETED != docking_get_status()) {printf("supply_start:docking not complete!!!!!!!!!!\n");
@@ -1334,19 +1352,19 @@ int station::supply_start(int water, int dirty, int charge)
 
 	if (water == 1 && SUPPLY_THREAD_STOP == supply_get_thread_status(MISSION_WATER)) {
 		supply_set_thread_status(MISSION_WATER, SUPPLY_THREAD_RUNNING);
-		std::thread pid_water_thread(supply_water_thread, MISSION_WATER, 50, this);
+		std::thread pid_water_thread(supply_water_thread, MISSION_WATER, 500, this);
 		pid_water_thread.detach();
 	}
 
 	if (dirty == 1 && SUPPLY_THREAD_STOP == supply_get_thread_status(MISSION_DIRTY)) {
 		supply_set_thread_status(MISSION_DIRTY, SUPPLY_THREAD_RUNNING);
-		std::thread pid_dirty_thread(supply_dirty_thread, MISSION_DIRTY, 30, this);
+		std::thread pid_dirty_thread(supply_dirty_thread, MISSION_DIRTY, 300, this);
 		pid_dirty_thread.detach();
 	}
 
 	if (charge == 1 && SUPPLY_THREAD_STOP == supply_get_thread_status(MISSION_CHARGE)) {
 		supply_set_thread_status(MISSION_CHARGE, SUPPLY_THREAD_RUNNING);
-		std::thread pid_charge_thread(supply_charge_thread, MISSION_CHARGE, 50, this);
+		std::thread pid_charge_thread(supply_charge_thread, MISSION_CHARGE, 500, this);
 		pid_charge_thread.detach();
 	}
 	

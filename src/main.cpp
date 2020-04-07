@@ -15,33 +15,9 @@ unsigned short station::seq = 0x1234;
 #define STA_IP "10.10.100.254"
 
 
-int test()
-{
-/*printf("%s %d\n", __func__, __LINE__);
-	station s;
-	s.init("10.10.100.254", 8899);
-	printf("%s %d\n", __func__, __LINE__);
-
-	s.send_frame(STA_CONN, NULL, 0);s.read_frame();
-	printf("%s %d\n", __func__, __LINE__);
-	s.send_frame(STA_CONN_START, NULL, 0);s.read_frame();
-	s.send_frame(STA_CONN_FIN, NULL, 0);s.read_frame();
-	printf("%s %d\n", __func__, __LINE__);
-
-sleep(1);
-	s.send_frame(STA_CHARGE, char * data, unsigned short len);
-	s.send_frame(STA_CHARGE_START, char * data, unsigned short len);
-	s.send_frame(STA_CHARGE_SUBMIT, char * data, unsigned short len);
-	s.send_frame(STA_CHARGE_STOP, char * data, unsigned short len);
-
-	s.send_frame(STA_DETACH, NULL, 0);s.read_frame();
-	s.send_frame(STA_DISCONN, NULL, 0);s.read_frame();*/
-	}
-
 int main(int argc, char **argv)
 {
 
-	//test();
 	ros::init(argc, argv, "workstation");
 	ros::NodeHandle n;
 	ros::Rate loop_rate(1);
@@ -74,7 +50,6 @@ int main(int argc, char **argv)
 
 	
 	while (ros::ok()) {
-		//TODO. heartbeat here
 		ros::spinOnce();
 		loop_rate.sleep();
 	}
