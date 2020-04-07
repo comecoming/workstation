@@ -1,0 +1,4 @@
+rosservice call /workstation/srv/docking/start '1234567890123456', '1234567890123456', '1234567890123456', 'map_id'
+rosservice call /workstation/srv/supply/start '1234567890123456', '1234567890123456', '1234567890123456', 1 1 1
+rosservice call /workstation/srv/supply/stop 1234567890123456, 1234567890123456, workstation_id
+rosservice call /workstation/srv/docking/stop 1234567890123456, 1234567890123456, workstation_id
